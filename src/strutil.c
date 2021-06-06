@@ -1249,4 +1249,46 @@ SR_API int sr_parse_voltage(const char *voltstr, uint64_t *p, uint64_t *q)
 	return SR_OK;
 }
 
+SR_API int sr_parse_dac(const char *dacstr, uint64_t dac[16384], uint64_t *dac_len)
+{
+  char *s_b, *s_e;
+  *dac_len = 0;
+  unsigned long long int check;
+
+  errno = 0;
+  check = strtoull(dacstr, &s_e, 10);
+  if(dacstr == s_e){
+    /* No digits found. */
+    return SR_ERR_ARG;
+  } 
+  while(errno == 0){
+    dac[*dac_len] = check;
+    (*dac_len)++;
+    if((*dac_len) == 16384){
+      break;
+    }
+    while((*s_e != '\0') && (*s_e == ',')){
+      /* skip commas between dac fields. */
+      s_e++;
+    }
+    if(*s_e == 0){
+      /* Check if out of characters. */
+      break;
+    }
+    s_b = s_e;
+    check = strtoull(s_b, &s_e, 10);
+    if((errno != 0 ) || (s_b == s_e)){
+      /* Invalid character. */
+      return SR_ERR_ARG;
+    }
+  }
+
+  if((*dac_len) == 0){
+    /* No digits found */
+    return SR_ERR_ARG;
+  }
+
+  return SR_OK;
+}
+
 /** @} */

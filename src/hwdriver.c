@@ -212,6 +212,10 @@ static struct sr_key_info sr_key_info_config[] = {
 		"Power Target", NULL},
 	{SR_CONF_RESISTANCE_TARGET, SR_T_FLOAT, "resistance_target",
 		"Resistance Target", NULL},
+  {SR_CONF_DAC, SR_T_UINT64_LIST, "dac",
+    "DAC", NULL},
+  {SR_CONF_ARB_MODE, SR_T_STRING, "arb_mode",
+    "Arbitrary Mode", NULL},
 
 	/* Special stuff */
 	{SR_CONF_SESSIONFILE, SR_T_STRING, "sessionfile",
@@ -346,6 +350,8 @@ SR_PRIV const GVariantType *sr_variant_type_get(int datatype)
 		return G_VARIANT_TYPE_DICTIONARY;
 	case SR_T_MQ:
 		return G_VARIANT_TYPE_TUPLE;
+  case SR_T_UINT64_LIST:
+    return G_VARIANT_TYPE_TUPLE;
 	default:
 		return NULL;
 	}

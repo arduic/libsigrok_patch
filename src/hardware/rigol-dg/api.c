@@ -46,6 +46,9 @@ static const uint32_t dg1000z_devopts_cg[] = {
 	SR_CONF_OFFSET | SR_CONF_GET | SR_CONF_SET,
 	SR_CONF_PHASE | SR_CONF_GET | SR_CONF_SET | SR_CONF_LIST,
 	SR_CONF_DUTY_CYCLE | SR_CONF_GET | SR_CONF_SET,
+  SR_CONF_DAC | SR_CONF_SET,
+  SR_CONF_ARB_MODE | SR_CONF_GET | SR_CONF_SET,
+  SR_CONF_SAMPLERATE | SR_CONF_SET,
 };
 
 static const double phase_min_max_step[] = { 0.0, 360.0, 0.001 };
@@ -224,6 +227,10 @@ static const struct scpi_command cmdset_dg1000z[] = {
 	{ PSG_CMD_COUNTER_SET_ENABLE, "COUN:STAT ON", },
 	{ PSG_CMD_COUNTER_SET_DISABLE, "COUN:STAT OFF", },
 	{ PSG_CMD_COUNTER_MEASURE, "COUN:MEAS?", },
+  { PSG_CMD_SET_DAC, "SOUR%s:DATA:DAC16 VOLATILE,%s,#%d%d", },
+  { PSG_CMD_GET_ARB_MODE, "SOUR%s:FUNC:ARB:MODE?", },
+  { PSG_CMD_SET_ARB_MODE, "SOUR%s:FUNC:ARB:MODE %s", },
+  { PSG_CMD_SET_SAMP_RATE, "SOUR%s:FUNC:ARB:SRAT %lu", },
 	ALL_ZERO
 };
 
@@ -529,7 +536,13 @@ static int config_get(uint32_t key, GVariant **data,
 				PSG_CMD_SELECT_CHANNEL, cg->name, data,
 				G_VARIANT_TYPE_DOUBLE, cmd, cg->name);
 			break;
-		default:
+    case SR_CONF_ARB_MODE:
+      sr_scpi_get_opc(scpi);
+      ret = sr_scpi_cmd_resp(sdi, devc->cmdset,
+        PSG_CMD_SELECT_CHANNEL, cg->name, data,
+        G_VARIANT_TYPE_STRING, PSG_CMD_GET_ARB_MODE, cg->name);      
+      break;
+    default:
 			sr_dbg("%s: Unsupported (cg) key: %d (%s)", __func__,
 				(int)key, (kinfo ? kinfo->name : "unknown"));
 			ret = SR_ERR_NA;
@@ -550,9 +563,10 @@ static int config_set(uint32_t key, GVariant *data,
 	struct channel_status *ch_status;
 	const struct sr_key_info *kinfo;
 	int ret;
-	uint32_t cmd;
+	uint32_t cmd, tuple_len, tuple_sent, send_len, buf_len;
 	const char *mode, *mode_name, *new_mode;
 	unsigned int i;
+  char buf[2048];
 
 	if (!data || !sdi)
 		return SR_ERR_ARG;
@@ -659,6 +673,57 @@ static int config_set(uint32_t key, GVariant *data,
 				PSG_CMD_SELECT_CHANNEL, cg->name,
 				cmd, cg->name, g_variant_get_double(data));
 			break;
+    case SR_CONF_DAC:
+      tuple_len = g_variant_n_children(data);
+      tuple_sent = 0;
+      snprintf(buf, 2048, "SOUR1:DATA:POIN VOLATILE,%d", tuple_len);
+      sr_scpi_send(sdi->conn, buf);
+      /* Since scpi_usbtmc has a buffer with a max size of 2048 which includes some USB stuff set the max per transaction to 1024 characters not including our header or the USB. So 512 points. */
+      while(tuple_sent < tuple_len){
+        if((tuple_sent + 512) >= tuple_len){
+          send_len = tuple_len - tuple_sent;
+          buf_len = snprintf(buf, 2048, "%d", send_len*2);
+          buf_len = snprintf(buf, 2048, sr_scpi_cmd_get(devc->cmdset, PSG_CMD_SET_DAC), cg->name, "END", buf_len, send_len*2);
+        }else{
+          send_len = 512;
+          buf_len = snprintf(buf, 2048, "%d", send_len*2);
+          buf_len = snprintf(buf, 2048, sr_scpi_cmd_get(devc->cmdset, PSG_CMD_SET_DAC), cg->name, "CON", buf_len, send_len*2);
+        }
+        /* The one tricky problem with this. Since we are sending raw bytes we send 0x00 however since the library depends on strings and 0x00 is the terminate character that does not work. */
+        /* As such change any 00 to 01. */
+        for(uint32_t i=0; i<send_len; i++){
+          buf[buf_len+1] = (char)((g_variant_get_uint64(g_variant_get_child_value(data, i+tuple_sent)) & 0xFF00) >> 8);
+          if(buf[buf_len+1] == 0){
+            buf[buf_len+1] = 1;
+          }
+          buf[buf_len] = (char)(g_variant_get_uint64(g_variant_get_child_value(data, i+tuple_sent)) & 0x00FF);
+          if(buf[buf_len] == 0){          
+            buf[buf_len] = 1;
+          }
+          buf_len += 2;
+        }
+        buf[buf_len] = '\0';
+        ret = sr_scpi_send(sdi->conn, buf);
+      /* This does NOT change the display. It would seem the display for volatile memory does not update to match the output it will still show all 0. */
+      /* However, the output has changed. You need to use copy and load to actually change the display. */
+        tuple_sent += send_len;
+      }
+      break;
+    case SR_CONF_ARB_MODE:
+      ret = SR_ERR_NA;
+      mode = g_variant_get_string(data, NULL);
+      if ((g_ascii_strncasecmp(mode, "FREQ", strlen("FREQ")) == 0) || 
+          (g_ascii_strncasecmp(mode, "SRAT",strlen("SRAT")) == 0)){           
+        ret = sr_scpi_cmd(sdi, devc->cmdset,
+          PSG_CMD_SELECT_CHANNEL, cg->name,
+          PSG_CMD_SET_ARB_MODE, cg->name, mode);
+      }
+      break;
+    case SR_CONF_SAMPLERATE:
+      ret = sr_scpi_cmd(sdi, devc->cmdset,
+          PSG_CMD_SELECT_CHANNEL, cg->name,
+          PSG_CMD_SET_SAMP_RATE, cg->name, g_variant_get_uint64(data));
+      break;
 		default:
 			sr_dbg("%s: Unsupported key: %d (%s)", __func__,
 				(int)key, (kinfo ? kinfo->name : "unknown"));

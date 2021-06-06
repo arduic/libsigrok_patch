@@ -153,6 +153,7 @@ enum sr_datatype {
 	SR_T_DOUBLE_RANGE,
 	SR_T_INT32,
 	SR_T_MQ,
+  SR_T_UINT64_LIST,
 
 	/* Update sr_variant_type_get() (hwdriver.c) upon changes! */
 };
@@ -1157,6 +1158,12 @@ enum sr_configkey {
 
 	/** Self test mode. */
 	SR_CONF_TEST_MODE,
+
+  /** Write to DAC memory. */
+  SR_CONF_DAC,
+
+  /** Set arbitrary function mode */
+  SR_CONF_ARB_MODE,
 
 	/* Update sr_key_info_config[] (hwdriver.c) upon changes! */
 };
